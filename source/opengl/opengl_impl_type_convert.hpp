@@ -91,6 +91,12 @@ namespace reshade::opengl
 		GLsync sync_objects[8];
 	};
 
+	template <typename T>
+	void hash_combine(size_t &seed, const T &v)
+	{
+		seed ^= std::hash<T>()(v) + 0x9e3779b9 + (seed << 6) + (seed >> 2);
+	}
+
 	constexpr auto make_resource_handle(GLenum target, GLuint object) -> api::resource
 	{
 		if (!object)
@@ -146,12 +152,6 @@ namespace reshade::opengl
 	GLenum convert_stencil_op(api::stencil_op value);
 	auto   convert_primitive_topology(GLenum value) -> api::primitive_topology;
 	GLenum convert_primitive_topology(api::primitive_topology value);
-	GLenum convert_query_type(api::query_type type);
-	GLenum convert_shader_type(api::shader_stage type);
-}
-
-template <typename T>
-inline void hash_combine(size_t &seed, const T &v)
-{
-	seed ^= std::hash<T>()(v) + 0x9e3779b9 + (seed << 6) + (seed >> 2);
+	GLenum convert_query_type(api::query_type value);
+	GLenum convert_shader_type(api::shader_stage value);
 }

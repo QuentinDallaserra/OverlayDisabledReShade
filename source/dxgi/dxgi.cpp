@@ -43,7 +43,7 @@ bool modify_swapchain_desc(reshade::api::device_api api, DXGI_SWAP_CHAIN_DESC &i
 	desc.back_buffer.texture.levels = 1;
 	desc.back_buffer.texture.format = static_cast<reshade::api::format>(internal_desc.BufferDesc.Format);
 	desc.back_buffer.texture.samples = static_cast<uint16_t>(internal_desc.SampleDesc.Count);
-	desc.back_buffer.heap = reshade::api::memory_heap::gpu_only;
+	desc.back_buffer.heap = reshade::api::memory_heap::default_;
 
 	// If either the width or height are zero, then the swap chain will be sized to the current window size
 	if (internal_desc.BufferDesc.Width == 0 || internal_desc.BufferDesc.Height == 0)
@@ -53,8 +53,6 @@ bool modify_swapchain_desc(reshade::api::device_api api, DXGI_SWAP_CHAIN_DESC &i
 
 		desc.back_buffer.texture.width = window_rect.right;
 		desc.back_buffer.texture.height = window_rect.bottom;
-
-		assert(desc.back_buffer.texture.width != 0 && desc.back_buffer.texture.height != 0);
 	}
 
 	if (internal_desc.BufferUsage & DXGI_USAGE_SHADER_INPUT)
@@ -105,6 +103,9 @@ bool modify_swapchain_desc(reshade::api::device_api api, DXGI_SWAP_CHAIN_DESC &i
 		if ((internal_desc.Flags & DXGI_SWAP_CHAIN_FLAG_ALLOW_TEARING) != 0 && sync_interval == 0)
 			sync_interval = 0x10000000;
 
+		// TODO: Allow add-ons to change the color space (by calling 'SetColorSpace' after swap chain creation)
+		assert(desc.color_space == reshade::api::color_space::unknown || desc.color_space == (internal_desc.BufferDesc.Format == DXGI_FORMAT_R16G16B16A16_FLOAT ? reshade::api::color_space::scrgb : reshade::api::color_space::srgb));
+
 		return true;
 	}
 
@@ -120,7 +121,7 @@ bool modify_swapchain_desc(reshade::api::device_api api, DXGI_SWAP_CHAIN_DESC1 &
 	desc.back_buffer.texture.levels = 1;
 	desc.back_buffer.texture.format = static_cast<reshade::api::format>(internal_desc.Format);
 	desc.back_buffer.texture.samples = static_cast<uint16_t>(internal_desc.SampleDesc.Count);
-	desc.back_buffer.heap = reshade::api::memory_heap::gpu_only;
+	desc.back_buffer.heap = reshade::api::memory_heap::default_;
 
 	// If either the width or height are zero, then the swap chain will be sized to the current window size
 	if (window != nullptr && (internal_desc.Width == 0 || internal_desc.Height == 0))
@@ -130,8 +131,6 @@ bool modify_swapchain_desc(reshade::api::device_api api, DXGI_SWAP_CHAIN_DESC1 &
 
 		desc.back_buffer.texture.width = window_rect.right;
 		desc.back_buffer.texture.height = window_rect.bottom;
-
-		assert(desc.back_buffer.texture.width != 0 && desc.back_buffer.texture.height != 0);
 	}
 
 	if (internal_desc.BufferUsage & DXGI_USAGE_SHADER_INPUT)
@@ -190,6 +189,8 @@ bool modify_swapchain_desc(reshade::api::device_api api, DXGI_SWAP_CHAIN_DESC1 &
 			fullscreen_desc->RefreshRate = floating_point_to_rational(desc.fullscreen_refresh_rate);
 			fullscreen_desc->Windowed = !desc.fullscreen_state;
 		}
+
+		assert(desc.color_space == reshade::api::color_space::unknown || desc.color_space == (internal_desc.Format == DXGI_FORMAT_R16G16B16A16_FLOAT ? reshade::api::color_space::scrgb : reshade::api::color_space::srgb));
 
 		return true;
 	}
@@ -384,16 +385,6 @@ static void init_swapchain_proxy(IDXGIFactory *factory, reshade::api::device_api
 	if (swapchain_proxy != nullptr)
 	{
 #if RESHADE_ADDON
-		// Update actual swap chain size
-		if (orig_desc.BufferDesc.Width == 0 || orig_desc.BufferDesc.Height == 0)
-		{
-			DXGI_SWAP_CHAIN_DESC desc = {};
-			swapchain->GetDesc(&desc);
-
-			orig_desc.BufferDesc.Width = desc.BufferDesc.Width;
-			orig_desc.BufferDesc.Height = desc.BufferDesc.Height;
-		}
-
 		swapchain_proxy->_sync_interval = sync_interval;
 		swapchain_proxy->_orig_desc = orig_desc;
 		swapchain_proxy->_is_desc_modified = desc_modified;
@@ -611,6 +602,22 @@ HRESULT STDMETHODCALLTYPE IDXGIFactory2_CreateSwapChainForComposition_Impl(IDXGI
 	return hr;
 }
 
+static bool use_dxgi_factory_vtable_hooks()
+{
+	// Have to use vtable hooks when Ubisoft Connect in-game overlay is loaded, because it installs hooks on the vtable entries of every factory returned,
+	// but those hooks always call back to the original functions of the last factory returned. So if an application first creates its own factory and then an internal one is created by D3D12,
+	// any calls the application is doing end up redirected to the vtable entries of the internal factory. Should that first factory be proxied, but the internal one not, then the call chain gets messed up and things crash.
+#ifndef _WIN64
+	if (GetModuleHandleW(L"overlay.dll") != nullptr)
+#else
+	if (GetModuleHandleW(L"overlay64.dll") != nullptr)
+#endif
+		return true;
+
+	// External hooks may create a DXGI factory and rewrite the vtable (e.g. NVIDIA Smooth Motion), so prefer proxy, to ensure ReShade gets called first
+	return false;
+}
+
 extern "C" HRESULT WINAPI CreateDXGIFactory(REFIID riid, void **ppFactory)
 {
 #if RESHADE_VERBOSE_LOG
@@ -635,14 +642,7 @@ extern "C" HRESULT WINAPI CreateDXGIFactory1(REFIID riid, void **ppFactory)
 	// The returned factory should alway implement the 'IDXGIFactory' base interface
 	const auto factory = static_cast<IDXGIFactory *>(*ppFactory);
 
-	// Have to use vtable hooks when Ubisoft Connect in-game overlay is loaded, because it installs hooks on the vtable entries of every factory returned,
-	// but those hooks always call back to the original functions of the last factory returned. So if an application first creates its own factory and then an internal one is created by D3D12,
-	// any calls the application is doing end up redirected to the vtable entries of the internal factory. Should that first factory be proxied, but the internal one not, then the call chain gets messed up and things crash.
-#ifndef _WIN64
-	if (GetModuleHandleW(L"overlay.dll") != nullptr)
-#else
-	if (GetModuleHandleW(L"overlay64.dll") != nullptr)
-#endif
+	if (use_dxgi_factory_vtable_hooks())
 	{
 		reshade::hooks::install("IDXGIFactory::CreateSwapChain", reshade::hooks::vtable_from_instance(factory), 10, &IDXGIFactory_CreateSwapChain);
 
@@ -655,7 +655,6 @@ extern "C" HRESULT WINAPI CreateDXGIFactory1(REFIID riid, void **ppFactory)
 			reshade::hooks::install("IDXGIFactory2::CreateSwapChainForComposition", reshade::hooks::vtable_from_instance(factory2.get()), 24, &IDXGIFactory2_CreateSwapChainForComposition);
 		}
 	}
-	// External hooks may create a DXGI factory and rewrite the vtable, so prefer proxy, to ensure ReShade gets called first
 	else if (!g_in_dxgi_runtime)
 	{
 		const auto factory_proxy = new DXGIFactory(factory);
@@ -740,14 +739,7 @@ extern "C" HRESULT WINAPI CreateDXGIFactory2(UINT Flags, REFIID riid, void **ppF
 	// The returned factory should alway implement the 'IDXGIFactory2' interface
 	const auto factory = static_cast<IDXGIFactory2 *>(*ppFactory);
 
-	// Have to use vtable hooks when Ubisoft Connect in-game overlay is loaded, because it installs hooks on the vtable entries of every factory returned,
-	// but those hooks always call back to the original functions of the last factory returned. So if an application first creates its own factory and then an internal one is created by D3D12,
-	// any calls the application is doing end up redirected to the vtable entries of the internal factory. Should that first factory be proxied, but the internal one not, then the call chain gets messed up and things crash.
-#ifndef _WIN64
-	if (GetModuleHandleW(L"overlay.dll") != nullptr)
-#else
-	if (GetModuleHandleW(L"overlay64.dll") != nullptr)
-#endif
+	if (use_dxgi_factory_vtable_hooks())
 	{
 		reshade::hooks::install("IDXGIFactory::CreateSwapChain", reshade::hooks::vtable_from_instance(factory), 10, &IDXGIFactory_CreateSwapChain);
 
@@ -757,7 +749,6 @@ extern "C" HRESULT WINAPI CreateDXGIFactory2(UINT Flags, REFIID riid, void **ppF
 			reshade::hooks::install("IDXGIFactory2::CreateSwapChainForComposition", reshade::hooks::vtable_from_instance(factory), 24, &IDXGIFactory2_CreateSwapChainForComposition);
 		}
 	}
-	// External hooks may create a DXGI factory and rewrite the vtable (e.g. NVIDIA Smooth Motion), so prefer proxy, to ensure ReShade gets called first
 	else if (!g_in_dxgi_runtime)
 	{
 		const auto factory_proxy = new DXGIFactory(factory);

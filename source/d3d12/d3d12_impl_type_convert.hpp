@@ -17,6 +17,11 @@ namespace reshade::d3d12
 	static_assert(sizeof(D3D12_VIEWPORT) == sizeof(api::viewport));
 	static_assert(sizeof(D3D12_GPU_DESCRIPTOR_HANDLE) == sizeof(api::descriptor_table));
 
+	struct resource_extra_data
+	{
+		D3D12_SUBRESOURCE_FOOTPRINT footprint;
+	};
+
 	struct pipeline_extra_data
 	{
 		D3D12_PRIMITIVE_TOPOLOGY topology;
@@ -30,7 +35,6 @@ namespace reshade::d3d12
 
 	struct query_heap_extra_data
 	{
-		api::query_type type;
 		UINT count;
 		ID3D12Resource *readback_resource;
 		std::pair<ID3D12Fence *, UINT64> *fences;
@@ -43,6 +47,26 @@ namespace reshade::d3d12
 
 	auto convert_color_space(api::color_space type) -> DXGI_COLOR_SPACE_TYPE;
 	auto convert_color_space(DXGI_COLOR_SPACE_TYPE type) -> api::color_space;
+
+	inline void convert_subresource_box(const reshade::api::subresource_box *box, const D3D12_RESOURCE_DESC &desc, uint32_t subresource, UINT &width, UINT &height, UINT &depth)
+	{
+		if (box != nullptr)
+		{
+			width = box->width();
+			height = box->height();
+			depth = box->depth();
+		}
+		else
+		{
+			width = std::max(1u, static_cast<UINT>(desc.Width) >> (subresource % desc.MipLevels));
+			height = std::max(1u, desc.Height >> (subresource % desc.MipLevels));
+
+			if (desc.Dimension == D3D12_RESOURCE_DIMENSION_TEXTURE3D)
+				depth = std::max(1u, static_cast<UINT>(desc.DepthOrArraySize) >> (subresource % desc.MipLevels));
+			else
+				depth = 1;
+		}
+	}
 
 	auto convert_access_to_usage(D3D12_BARRIER_ACCESS access) -> api::resource_usage;
 	auto convert_barrier_layout_to_usage(D3D12_BARRIER_LAYOUT layout) -> api::resource_usage;
@@ -58,7 +82,6 @@ namespace reshade::d3d12
 	api::sampler_desc convert_sampler_desc(const D3D12_SAMPLER_DESC &internal_desc);
 	api::sampler_desc convert_sampler_desc(const D3D12_SAMPLER_DESC2 &internal_desc);
 	api::sampler_desc convert_sampler_desc(const D3D12_STATIC_SAMPLER_DESC &internal_desc);
-	api::sampler_desc convert_sampler_desc(const D3D12_STATIC_SAMPLER_DESC1 &internal_desc);
 
 	void convert_resource_desc(const api::resource_desc &desc, D3D12_RESOURCE_DESC &internal_desc, D3D12_HEAP_PROPERTIES &heap_props, D3D12_HEAP_FLAGS &heap_flags);
 	void convert_resource_desc(const api::resource_desc &desc, D3D12_RESOURCE_DESC1 &internal_desc, D3D12_HEAP_PROPERTIES &heap_props, D3D12_HEAP_FLAGS &heap_flags);
@@ -136,16 +159,27 @@ namespace reshade::d3d12
 	auto convert_query_heap_type_to_type(D3D12_QUERY_HEAP_TYPE type) -> api::query_type;
 
 	auto convert_descriptor_type(api::descriptor_type type) -> D3D12_DESCRIPTOR_RANGE_TYPE;
+	auto convert_descriptor_type(D3D12_ROOT_PARAMETER_TYPE type) -> api::descriptor_type;
 	auto convert_descriptor_type(D3D12_DESCRIPTOR_RANGE_TYPE type) -> api::descriptor_type;
 	auto convert_descriptor_type_to_heap_type(api::descriptor_type type) -> D3D12_DESCRIPTOR_HEAP_TYPE;
+	auto convert_descriptor_range_flags(api::descriptor_range_flags value) -> D3D12_DESCRIPTOR_RANGE_FLAGS;
+	auto convert_descriptor_range_flags(D3D12_ROOT_DESCRIPTOR_FLAGS value) -> api::descriptor_range_flags;
+	auto convert_descriptor_range_flags(D3D12_DESCRIPTOR_RANGE_FLAGS value) -> api::descriptor_range_flags;
 
 	auto convert_shader_visibility(api::shader_stage value) -> D3D12_SHADER_VISIBILITY;
 	auto convert_shader_visibility(D3D12_SHADER_VISIBILITY value) -> api::shader_stage;
 
+	auto convert_render_pass_flags(api::render_pass_flags value) -> D3D12_RENDER_PASS_FLAGS;
+	auto convert_render_pass_flags(D3D12_RENDER_PASS_FLAGS value) -> api::render_pass_flags;
 	auto convert_render_pass_load_op(api::render_pass_load_op value) -> D3D12_RENDER_PASS_BEGINNING_ACCESS_TYPE;
 	auto convert_render_pass_load_op(D3D12_RENDER_PASS_BEGINNING_ACCESS_TYPE value) -> api::render_pass_load_op;
 	auto convert_render_pass_store_op(api::render_pass_store_op value) -> D3D12_RENDER_PASS_ENDING_ACCESS_TYPE;
 	auto convert_render_pass_store_op(D3D12_RENDER_PASS_ENDING_ACCESS_TYPE value) -> api::render_pass_store_op;
+
+	void convert_render_pass_render_target_desc(const api::render_pass_render_target_desc &desc, api::format clear_format, D3D12_RENDER_PASS_RENDER_TARGET_DESC &internal_desc);
+	api::render_pass_render_target_desc convert_render_pass_render_target_desc(const D3D12_RENDER_PASS_RENDER_TARGET_DESC &internal_desc);
+	void convert_render_pass_depth_stencil_desc(const api::render_pass_depth_stencil_desc &desc, api::format clear_format, D3D12_RENDER_PASS_DEPTH_STENCIL_DESC &internal_desc);
+	api::render_pass_depth_stencil_desc convert_render_pass_depth_stencil_desc(const D3D12_RENDER_PASS_DEPTH_STENCIL_DESC &internal_desc);
 
 	auto convert_fence_flags(api::fence_flags value) -> D3D12_FENCE_FLAGS;
 
@@ -215,3 +249,9 @@ typedef D3D12_PIPELINE_STATE_STREAM<D3D12_PIPELINE_STATE_SUBOBJECT_TYPE_DEPTH_ST
 typedef D3D12_PIPELINE_STATE_STREAM<D3D12_PIPELINE_STATE_SUBOBJECT_TYPE_RASTERIZER1, D3D12_RASTERIZER_DESC1> D3D12_PIPELINE_STATE_STREAM_RASTERIZER1;
 typedef D3D12_PIPELINE_STATE_STREAM<D3D12_PIPELINE_STATE_SUBOBJECT_TYPE_RASTERIZER2, D3D12_RASTERIZER_DESC2> D3D12_PIPELINE_STATE_STREAM_RASTERIZER2;
 typedef D3D12_PIPELINE_STATE_STREAM<D3D12_PIPELINE_STATE_SUBOBJECT_TYPE_SERIALIZED_ROOT_SIGNATURE, D3D12_SERIALIZED_ROOT_SIGNATURE_DESC> D3D12_PIPELINE_STATE_STREAM_SERIALIZED_ROOT_SIGNATURE;
+
+// vkd3d extension interfaces
+inline constexpr GUID IID_ID3D12DeviceExt = { 0x11ea7a1a, 0x0f6a, 0x49bf, { 0xb6, 0x12, 0x3e, 0x30, 0xf8, 0xe2, 0x01, 0xdd } }; // {11EA7A1A-0F6A-49BF-B612-3E30F8E201DD}
+inline constexpr GUID IID_ID3D12DeviceExt1 = { 0x099a73fd, 0x2199, 0x4f45, { 0xbf, 0x48, 0x0e, 0xb8, 0x6f, 0x6f, 0xdb, 0x65 } }; // {099A73FD-2199-4F45-BF48-0EB86F6FDB65}
+inline constexpr GUID IID_ID3D12DeviceExt2 = { 0xe859c4ac, 0xba8f, 0x41c4, { 0x8e, 0xac, 0x11, 0x37, 0xfd, 0xe6, 0x15, 0x8d } }; // {E859C4AC-BA8F-41C4-8EAC-1137FDE6158D}
+inline constexpr GUID IID_ID3D12GraphicsCommandListExt = { 0x77a86b09, 0x2bea, 0x4801, { 0xb8, 0x9a, 0x37, 0x64, 0x8e, 0x10, 0x4a, 0xf1 } }; // {77A86B09-2BEA-4801-B89A-37648E104AF1}

@@ -7,11 +7,11 @@
 #include "opengl_impl_device_context.hpp"
 #include "opengl_impl_type_convert.hpp"
 
-#define gl _device_impl->_dispatch_table
+#define gl _device->_dispatch_table
 
 reshade::opengl::device_context_impl::device_context_impl(device_impl *device, HGLRC hglrc) :
 	api_object_impl(hglrc),
-	_device_impl(device),
+	_device(device),
 	_default_fbo_width(device->_default_fbo_desc.texture.width),
 	_default_fbo_height(device->_default_fbo_desc.texture.height)
 {
@@ -42,7 +42,7 @@ reshade::opengl::device_context_impl::~device_context_impl()
 
 reshade::api::device *reshade::opengl::device_context_impl::get_device()
 {
-	return _device_impl;
+	return _device;
 }
 
 void reshade::opengl::device_context_impl::flush_immediate_command_list() const
@@ -57,6 +57,7 @@ void reshade::opengl::device_context_impl::wait_idle() const
 
 bool reshade::opengl::device_context_impl::wait(api::fence fence, uint64_t value)
 {
+#if GL_EXT_semaphore
 	if ((fence.handle >> 40) == 0xFFFFFFFF)
 	{
 		if (!gl.EXT_semaphore)
@@ -68,6 +69,7 @@ bool reshade::opengl::device_context_impl::wait(api::fence fence, uint64_t value
 		gl.WaitSemaphoreEXT(object, 0, nullptr, 0, nullptr, nullptr);
 		return true;
 	}
+#endif
 
 	const auto impl = reinterpret_cast<fence_impl *>(fence.handle);
 	if (value > impl->current_value)
@@ -82,6 +84,7 @@ bool reshade::opengl::device_context_impl::wait(api::fence fence, uint64_t value
 }
 bool reshade::opengl::device_context_impl::signal(api::fence fence, uint64_t value)
 {
+#if GL_EXT_semaphore
 	if ((fence.handle >> 40) == 0xFFFFFFFF)
 	{
 		if (!gl.EXT_semaphore)
@@ -93,6 +96,7 @@ bool reshade::opengl::device_context_impl::signal(api::fence fence, uint64_t val
 		gl.SignalSemaphoreEXT(object, 0, nullptr, 0, nullptr, nullptr);
 		return true;
 	}
+#endif
 
 	const auto impl = reinterpret_cast<fence_impl *>(fence.handle);
 	if (value < impl->current_value)

@@ -6,11 +6,11 @@
 #include "d3d11_device.hpp"
 #include "d3d11_command_list.hpp"
 #include "dll_log.hpp"
+#include "com_utils.hpp"
 #include "addon_manager.hpp"
 
 D3D11CommandList::D3D11CommandList(D3D11Device *device, ID3D11CommandList *original) :
-	command_list_impl(device, original),
-	_device(device)
+	command_list_impl(device, original)
 {
 	assert(_orig != nullptr && _device != nullptr);
 
@@ -49,7 +49,6 @@ HRESULT STDMETHODCALLTYPE D3D11CommandList::QueryInterface(REFIID riid, void **p
 	}
 
 	// Interface ID to query the original object from a proxy object
-	constexpr GUID IID_UnwrappedObject = { 0x7f2c9a11, 0x3b4e, 0x4d6a, { 0x81, 0x2f, 0x5e, 0x9c, 0xd3, 0x7a, 0x1b, 0x42 } }; // {7F2C9A11-3B4E-4D6A-812F-5E9CD37A1B42}
 	if (riid == IID_UnwrappedObject)
 	{
 		_orig->AddRef();
@@ -87,8 +86,8 @@ ULONG   STDMETHODCALLTYPE D3D11CommandList::Release()
 
 void    STDMETHODCALLTYPE D3D11CommandList::GetDevice(ID3D11Device **ppDevice)
 {
-	_device->AddRef();
-	*ppDevice = _device;
+	static_cast<D3D11Device *>(_device)->AddRef();
+	*ppDevice = static_cast<D3D11Device *>(_device);
 }
 HRESULT STDMETHODCALLTYPE D3D11CommandList::GetPrivateData(REFGUID guid, UINT *pDataSize, void *pData)
 {

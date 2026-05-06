@@ -66,7 +66,7 @@ void dump_and_modify_present_parameters(D3DPRESENT_PARAMETERS &pp, [[maybe_unuse
 	desc.back_buffer.texture.depth_or_layers = 1;
 	desc.back_buffer.texture.levels = 1;
 	desc.back_buffer.texture.format = reshade::d3d9::convert_format(pp.BackBufferFormat);
-	desc.back_buffer.heap = reshade::api::memory_heap::gpu_only;
+	desc.back_buffer.heap = reshade::api::memory_heap::default_;
 	desc.back_buffer.usage = reshade::api::resource_usage::render_target;
 
 	if (pp.MultiSampleType >= D3DMULTISAMPLE_2_SAMPLES)
@@ -248,11 +248,9 @@ static void init_device_proxy(T *&device, D3DDEVTYPE device_type, HWND device_wi
 	// Check if this device was created via D3D9on12 and hook it too if so
 	init_device_proxy_for_d3d9on12(device_proxy);
 
-#if 1
 	// Upgrade to extended interface if available to prevent compatibility issues with some games
 	com_ptr<IDirect3DDevice9Ex> deviceex;
 	device_proxy->QueryInterface(IID_PPV_ARGS(&deviceex));
-#endif
 
 #if RESHADE_VERBOSE_LOG
 	reshade::log::message(

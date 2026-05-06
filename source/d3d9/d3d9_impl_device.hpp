@@ -45,8 +45,8 @@ namespace reshade::d3d9
 		bool map_texture_region(api::resource resource, uint32_t subresource, const api::subresource_box *box, api::map_access access, api::subresource_data *out_data) final;
 		void unmap_texture_region(api::resource resource, uint32_t subresource) final;
 
-		void update_buffer_region(const void *data, api::resource resource, uint64_t offset, uint64_t size) final;
-		void update_texture_region(const api::subresource_data &data, api::resource resource, uint32_t subresource, const api::subresource_box *box) final;
+		void update_buffer_region(const void *data, api::resource dest, uint64_t dest_offset, uint64_t size) final;
+		void update_texture_region(const api::subresource_data &data, api::resource dest, uint32_t dest_subresource, const api::subresource_box *dest_box) final;
 
 		bool create_input_layout(uint32_t count, const api::input_element *desc, api::pipeline *out_pipeline);
 		bool create_vertex_shader(const api::shader_desc &desc, api::pipeline *out_pipeline);
@@ -69,7 +69,7 @@ namespace reshade::d3d9
 		bool create_query_heap(api::query_type type, uint32_t count, api::query_heap *out_heap) final;
 		void destroy_query_heap(api::query_heap heap) final;
 
-		bool get_query_heap_results(api::query_heap heap, uint32_t first, uint32_t count, void *results, uint32_t stride) final;
+		bool get_query_heap_results(api::query_heap heap, api::query_type type, uint32_t first, uint32_t count, void *results, uint32_t stride) final;
 
 		void set_resource_name(api::resource, const char *) final {}
 		void set_resource_view_name(api::resource_view, const char *) final {}
@@ -101,7 +101,7 @@ namespace reshade::d3d9
 
 		void barrier(uint32_t, const api::resource *, const api::resource_usage *, const api::resource_usage *) final { /* no-op */ }
 
-		void begin_render_pass(uint32_t count, const api::render_pass_render_target_desc *rts, const api::render_pass_depth_stencil_desc *ds) final;
+		void begin_render_pass(uint32_t count, const api::render_pass_render_target_desc *rts, const api::render_pass_depth_stencil_desc *ds, api::render_pass_flags flags) final;
 		void end_render_pass() final;
 		void bind_render_targets_and_depth_stencil(uint32_t count, const api::resource_view *rtvs, api::resource_view dsv) final;
 

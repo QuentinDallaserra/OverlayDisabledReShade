@@ -7,7 +7,7 @@
 
 #include "reshade_api_pipeline.hpp"
 
-namespace reshade { namespace api
+namespace reshade::api
 {
 	/// <summary>
 	/// Underlying graphics API a device is using.
@@ -32,7 +32,7 @@ namespace reshade { namespace api
 		opengl = 0x10000,
 		/// <summary>Vulkan</summary>
 		/// <remarks>https://www.khronos.org/vulkan/</remarks>
-		vulkan = 0x20000
+		vulkan = 0x20000,
 	};
 
 	/// <summary>
@@ -196,6 +196,11 @@ namespace reshade { namespace api
 		/// If this feature is not present, <see cref="command_list::update_texture_region"/> must not be used.
 		/// </summary>
 		update_texture_region_command,
+		/// <summary>
+		/// Specifies whether GPU upload heaps are supported.
+		/// If this feature is not present, <see cref="memory_heap::gpu_upload"/> must not be used.
+		/// </summary>
+		gpu_upload_heap,
 	};
 
 	/// <summary>
@@ -429,19 +434,25 @@ namespace reshade { namespace api
 		/// <summary>
 		/// Uploads data to a buffer resource immediately.
 		/// </summary>
+		/// <remarks>
+		/// The <paramref name="dest"/>ination resource has to be in the <see cref="resource_usage::copy_dest"/> state.
+		/// </remarks>
 		/// <param name="data">Pointer to the data to upload.</param>
-		/// <param name="resource">Buffer resource to upload to.</param>
-		/// <param name="offset">Offset (in bytes) into the buffer resource to start uploading to.</param>
-		/// <param name="size">Number of bytes to upload.</param>
-		virtual void update_buffer_region(const void *data, resource resource, uint64_t offset, uint64_t size) = 0;
+		/// <param name="dest">Buffer resource to upload to.</param>
+		/// <param name="dest_offset">Offset (in bytes) into the buffer resource to start uploading to.</param>
+		/// <param name="size">Number of bytes to upload. Set to -1 (UINT64_MAX) to indicate that the entire buffer should be updated.</param>
+		virtual void update_buffer_region(const void *data, resource dest, uint64_t dest_offset, uint64_t size) = 0;
 		/// <summary>
 		/// Uploads data to a texture resource immediately.
 		/// </summary>
+		/// <remarks>
+		/// The <paramref name="dest"/>ination has to be in the <see cref="resource_usage::copy_dest"/> state.
+		/// </remarks>
 		/// <param name="data">Pointer to the data to upload.</param>
-		/// <param name="resource">Texture resource to upload to.</param>
-		/// <param name="subresource">Index of the subresource to upload to (<c>level + (layer * levels)</c>).</param>
-		/// <param name="box">Optional 3D box (or <see langword="nullptr"/> to reference the entire subresource) that defines the region in the <paramref name="resource"/> to upload to.</param>
-		virtual void update_texture_region(const subresource_data &data, resource resource, uint32_t subresource, const subresource_box *box = nullptr) = 0;
+		/// <param name="dest">Texture resource to upload to.</param>
+		/// <param name="dest_subresource">Index of the subresource to upload to (<c>level + (layer * levels)</c>).</param>
+		/// <param name="dest_box">Optional 3D box (or <see langword="nullptr"/> to reference the entire subresource) that defines the region in the <paramref name="resource"/> to upload to.</param>
+		virtual void update_texture_region(const subresource_data &data, resource dest, uint32_t dest_subresource, const subresource_box *dest_box = nullptr) = 0;
 
 		/// <summary>
 		/// Creates a new pipeline state object.
@@ -546,12 +557,13 @@ namespace reshade { namespace api
 		/// Gets the results of queries in a query heap.
 		/// </summary>
 		/// <param name="heap">Query heap that contains the queries.</param>
+		/// <param name="type">Type of the queries to copy.</param>
 		/// <param name="first">Index of the first query in the query heap to copy the results from.</param>
 		/// <param name="count">Number of query results to copy.</param>
 		/// <param name="results">Pointer to the first element of an array that is filled with the results. The necessary data type is documented at the <see cref="query_type"/> enumeration.</param>
 		/// <param name="stride">Size (in bytes) of each element in the <paramref name="results"/> array.</param>
 		/// <returns><see langword="true"/> if the query results were successfully downloaded from the GPU, <see langword="false"/> otherwise.</returns>
-		virtual bool get_query_heap_results(query_heap heap, uint32_t first, uint32_t count, void *results, uint32_t stride) = 0;
+		virtual bool get_query_heap_results(query_heap heap, query_type type, uint32_t first, uint32_t count, void *results, uint32_t stride) = 0;
 
 		/// <summary>
 		/// Associates a name with a resource, for easier debugging in external tools.
@@ -663,7 +675,7 @@ namespace reshade { namespace api
 		draw_indexed,
 		dispatch,
 		dispatch_mesh,
-		dispatch_rays
+		dispatch_rays,
 	};
 
 	/// <summary>
@@ -699,7 +711,7 @@ namespace reshade { namespace api
 		/// <param name="count">Number of render target views to bind.</param>
 		/// <param name="rts">Pointer to the first element of an array of render target descriptions.</param>
 		/// <param name="ds">Optional pointer to a depth-stencil description, or <see langword="nullptr"/> to bind none.</param>
-		virtual void begin_render_pass(uint32_t count, const render_pass_render_target_desc *rts, const render_pass_depth_stencil_desc *ds = nullptr) = 0;
+		virtual void begin_render_pass(uint32_t count, const render_pass_render_target_desc *rts, const render_pass_depth_stencil_desc *ds = nullptr, render_pass_flags flags = render_pass_flags::none) = 0;
 		/// <summary>
 		/// Ends a render pass.
 		/// This must be preceeded by a call to <see cref="begin_render_pass"/>.
@@ -890,7 +902,7 @@ namespace reshade { namespace api
 		/// <param name="source_offset">Offset (in bytes) into the <paramref name="source"/> buffer to start copying at.</param>
 		/// <param name="dest">Buffer resource to copy to.</param>
 		/// <param name="dest_offset">Offset (in bytes) into the <paramref name="dest"/>ination buffer to start copying to.</param>
-		/// <param name="size">Number of bytes to copy.</param>
+		/// <param name="size">Number of bytes to copy. Set to -1 (UINT64_MAX) to indicate that the entire buffer should be copied.</param>
 		virtual void copy_buffer_region(resource source, uint64_t source_offset, resource dest, uint64_t dest_offset, uint64_t size) = 0;
 		/// <summary>
 		/// Copies a texture region from the <paramref name="source"/> buffer to the <paramref name="dest"/>ination texture.
@@ -1166,7 +1178,7 @@ namespace reshade { namespace api
 	{
 		graphics = 0x1,
 		compute = 0x2,
-		copy = 0x4
+		copy = 0x4,
 	};
 	RESHADE_DEFINE_ENUM_FLAG_OPERATORS(command_queue_type);
 
@@ -1288,6 +1300,11 @@ namespace reshade { namespace api
 		/// </list>
 		/// </summary>
 		uint32_t sync_interval = UINT32_MAX;
+
+		/// <summary>
+		/// Color space used for presentation.
+		/// </summary>
+		color_space color_space = color_space::unknown;
 	};
 
 	/// <summary>
@@ -1331,4 +1348,4 @@ namespace reshade { namespace api
 		/// </summary>
 		virtual color_space get_color_space() const = 0;
 	};
-} }
+}

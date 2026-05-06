@@ -35,7 +35,7 @@ bool DXGIDevice::check_and_upgrade_interface(REFIID riid)
 		__uuidof(IDXGIDevice4), // {95B4F95F-D8DA-4CA4-9EE6-3B76D5968A10}
 	};
 
-	for (unsigned short version = 0; version < ARRAYSIZE(iid_lookup); ++version)
+	for (unsigned short version = 0; version < std::size(iid_lookup); ++version)
 	{
 		if (riid != iid_lookup[version])
 			continue;
@@ -88,43 +88,51 @@ HRESULT STDMETHODCALLTYPE DXGIDevice::GetGPUThreadPriority(INT *pPriority)
 HRESULT STDMETHODCALLTYPE DXGIDevice::SetMaximumFrameLatency(UINT MaxLatency)
 {
 	assert(_interface_version >= 1);
+
 	return _orig->SetMaximumFrameLatency(MaxLatency);
 }
 HRESULT STDMETHODCALLTYPE DXGIDevice::GetMaximumFrameLatency(UINT *pMaxLatency)
 {
 	assert(_interface_version >= 1);
+
 	return _orig->GetMaximumFrameLatency(pMaxLatency);
 }
 
 HRESULT STDMETHODCALLTYPE DXGIDevice::OfferResources(UINT NumResources, IDXGIResource *const *ppResources, DXGI_OFFER_RESOURCE_PRIORITY Priority)
 {
 	assert(_interface_version >= 2);
+
 	return static_cast<IDXGIDevice2 *>(_orig)->OfferResources(NumResources, ppResources, Priority);
 }
 HRESULT STDMETHODCALLTYPE DXGIDevice::ReclaimResources(UINT NumResources, IDXGIResource *const *ppResources, BOOL *pDiscarded)
 {
 	assert(_interface_version >= 2);
+
 	return static_cast<IDXGIDevice2 *>(_orig)->ReclaimResources(NumResources, ppResources, pDiscarded);
 }
 HRESULT STDMETHODCALLTYPE DXGIDevice::EnqueueSetEvent(HANDLE hEvent)
 {
 	assert(_interface_version >= 2);
+
 	return static_cast<IDXGIDevice2 *>(_orig)->EnqueueSetEvent(hEvent);
 }
 
 void    STDMETHODCALLTYPE DXGIDevice::Trim()
 {
 	assert(_interface_version >= 3);
+
 	return static_cast<IDXGIDevice3 *>(_orig)->Trim();
 }
 
 HRESULT STDMETHODCALLTYPE DXGIDevice::OfferResources1(UINT NumResources, IDXGIResource *const *ppResources, DXGI_OFFER_RESOURCE_PRIORITY Priority, UINT Flags)
 {
 	assert(_interface_version >= 4);
+
 	return static_cast<IDXGIDevice4 *>(_orig)->OfferResources1(NumResources, ppResources, Priority, Flags);
 }
 HRESULT STDMETHODCALLTYPE DXGIDevice::ReclaimResources1(UINT NumResources, IDXGIResource *const *ppResources, DXGI_RECLAIM_RESOURCE_RESULTS *pResults)
 {
 	assert(_interface_version >= 4);
+
 	return static_cast<IDXGIDevice4 *>(_orig)->ReclaimResources1(NumResources, ppResources, pResults);
 }

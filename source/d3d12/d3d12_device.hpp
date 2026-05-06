@@ -7,10 +7,13 @@
 
 #include "d3d12_impl_device.hpp"
 
-struct D3D12DeviceDownlevel;
+class D3D12DeviceDownlevel;
 
-struct DECLSPEC_UUID("2523AFF4-978B-4939-BA16-8EE876A4CB2A") D3D12Device final : ID3D12Device14, public reshade::d3d12::device_impl
+class DECLSPEC_UUID("2523AFF4-978B-4939-BA16-8EE876A4CB2A") D3D12Device final : public ID3D12Device15, public reshade::d3d12::device_impl
 {
+	friend class D3D12DeviceDownlevel;
+
+public:
 	D3D12Device(ID3D12Device *original);
 	~D3D12Device();
 
@@ -131,6 +134,19 @@ struct DECLSPEC_UUID("2523AFF4-978B-4939-BA16-8EE876A4CB2A") D3D12Device final :
 	#pragma region ID3D12Device14
 	HRESULT STDMETHODCALLTYPE CreateRootSignatureFromSubobjectInLibrary(UINT nodeMask, const void *pLibraryBlob, SIZE_T blobLengthInBytes, LPCWSTR subobjectName, REFIID riid, void **ppvRootSignature) override;
 	#pragma endregion
+	#pragma region ID3D12Device15
+	HRESULT STDMETHODCALLTYPE RegisterTrimNotificationCallback(D3D12_REGISTER_TRIM_NOTIFICATION *pData) override;
+	HRESULT STDMETHODCALLTYPE UnregisterTrimNotificationCallback(DWORD CallbackCookie) override;
+	HRESULT STDMETHODCALLTYPE TryCreateShaderResourceView(ID3D12Resource *pResource, const D3D12_SHADER_RESOURCE_VIEW_DESC *pDesc, D3D12_CPU_DESCRIPTOR_HANDLE DestDescriptor) override;
+	HRESULT STDMETHODCALLTYPE TryCreateUnorderedAccessView(ID3D12Resource *pResource, ID3D12Resource *pCounterResource, const D3D12_UNORDERED_ACCESS_VIEW_DESC *pDesc, D3D12_CPU_DESCRIPTOR_HANDLE DestDescriptor) override;
+	HRESULT STDMETHODCALLTYPE TryCreateConstantBufferView(const D3D12_CONSTANT_BUFFER_VIEW_DESC *pDesc, D3D12_CPU_DESCRIPTOR_HANDLE DestDescriptor) override;
+	HRESULT STDMETHODCALLTYPE TryCreateSampler2( const D3D12_SAMPLER_DESC2 *pDesc, D3D12_CPU_DESCRIPTOR_HANDLE DestDescriptor) override;
+	HRESULT STDMETHODCALLTYPE TryCreateRenderTargetView(ID3D12Resource *pResource, const D3D12_RENDER_TARGET_VIEW_DESC *pDesc, D3D12_CPU_DESCRIPTOR_HANDLE DestDescriptor) override;
+	HRESULT STDMETHODCALLTYPE TryCreateDepthStencilView(ID3D12Resource *pResource, const D3D12_DEPTH_STENCIL_VIEW_DESC *pDesc, D3D12_CPU_DESCRIPTOR_HANDLE DestDescriptor) override;
+	HRESULT STDMETHODCALLTYPE TryCreateSamplerFeedbackUnorderedAccessView(ID3D12Resource *pTargetedResource, ID3D12Resource *pFeedbackResource, D3D12_CPU_DESCRIPTOR_HANDLE DestDescriptor) override;
+	HRESULT STDMETHODCALLTYPE CreateQueryHeap1(const D3D12_QUERY_HEAP_DESC *pDesc, D3D12_QUERY_HEAP_FLAGS Flags, REFIID riid, void **ppvHeap) override;
+	HRESULT STDMETHODCALLTYPE ResolveQueryData(ID3D12QueryHeap *pQueryHeap, D3D12_QUERY_TYPE Type, UINT StartIndex, UINT NumQueries, void *pResolvedQueryData) override;
+	#pragma endregion
 
 	bool check_and_upgrade_interface(REFIID riid);
 
@@ -145,7 +161,10 @@ struct DECLSPEC_UUID("2523AFF4-978B-4939-BA16-8EE876A4CB2A") D3D12Device final :
 	bool invoke_create_and_init_pipeline_layout_event(UINT node_mask, const void *blob, size_t blob_size, ID3D12RootSignature *&root_signature, HRESULT &hr);
 #endif
 
+	using device_impl::_orig;
 	LONG _ref = 1;
 	unsigned short _interface_version = 0;
+
+private:
 	D3D12DeviceDownlevel *_downlevel = nullptr;
 };

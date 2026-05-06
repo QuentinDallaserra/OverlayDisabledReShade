@@ -20,7 +20,7 @@ namespace reshade::vulkan
 
 		void barrier(uint32_t count, const api::resource *resources, const api::resource_usage *old_states, const api::resource_usage *new_states) final;
 
-		void begin_render_pass(uint32_t count, const api::render_pass_render_target_desc *rts, const api::render_pass_depth_stencil_desc *ds) final;
+		void begin_render_pass(uint32_t count, const api::render_pass_render_target_desc *rts, const api::render_pass_depth_stencil_desc *ds, api::render_pass_flags flags) final;
 		void end_render_pass() final;
 		void bind_render_targets_and_depth_stencil(uint32_t count, const api::resource_view *rtvs, api::resource_view dsv) final;
 
@@ -30,7 +30,7 @@ namespace reshade::vulkan
 		void bind_scissor_rects(uint32_t first, uint32_t count, const api::rect *rects) final;
 
 		void push_constants(api::shader_stage stages, api::pipeline_layout layout, uint32_t layout_param, uint32_t first, uint32_t count, const void *values) final;
-		void push_descriptors(api::shader_stage stages, api::pipeline_layout layout, uint32_t layout_param, const api::descriptor_table_update &update) final;
+		void push_descriptors(api::shader_stage stages, api::pipeline_layout layout, uint32_t layout_param, const api::descriptor_table_update &update) override;
 		void bind_descriptor_tables(api::shader_stage stages, api::pipeline_layout layout, uint32_t first, uint32_t count, const api::descriptor_table *tables) final;
 
 		void bind_index_buffer(api::resource buffer, uint64_t offset, uint32_t index_size) final;
@@ -66,17 +66,18 @@ namespace reshade::vulkan
 		void build_acceleration_structure(api::acceleration_structure_type type, api::acceleration_structure_build_flags flags, uint32_t input_count, const api::acceleration_structure_build_input *inputs, api::resource scratch, uint64_t scratch_offset, api::resource_view source, api::resource_view dest, api::acceleration_structure_build_mode mode) final;
 		void query_acceleration_structures(uint32_t count, const api::resource_view *acceleration_structures, api::query_heap heap, api::query_type type, uint32_t first) final;
 
-		void update_buffer_region(const void *data, api::resource dest, uint64_t dest_offset, uint64_t size) final;
-		void update_texture_region(const api::subresource_data &data, api::resource dest, uint32_t dest_subresource, const api::subresource_box *dest_box) final;
+		void update_buffer_region(const void *data, api::resource dest, uint64_t dest_offset, uint64_t size) override;
+		void update_texture_region(const api::subresource_data &data, api::resource dest, uint32_t dest_subresource, const api::subresource_box *dest_box) override;
 
 		void begin_debug_event(const char *label, const float color[4]) final;
 		void end_debug_event() final;
 		void insert_debug_marker(const char *label, const float color[4]) final;
 
 	protected:
-		device_impl *const _device_impl;
+		device_impl *const _device;
+
 		bool _has_commands = false;
-		bool _is_in_render_pass = false;
+		uint8_t _is_in_render_pass = 0;
 	};
 
 	template <>

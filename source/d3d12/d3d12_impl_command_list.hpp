@@ -21,7 +21,7 @@ namespace reshade::d3d12
 
 		void barrier(uint32_t count, const api::resource *resources, const api::resource_usage *old_states, const api::resource_usage *new_states) final;
 
-		void begin_render_pass(uint32_t count, const api::render_pass_render_target_desc *rts, const api::render_pass_depth_stencil_desc *ds) final;
+		void begin_render_pass(uint32_t count, const api::render_pass_render_target_desc *rts, const api::render_pass_depth_stencil_desc *ds, api::render_pass_flags flags) final;
 		void end_render_pass() final;
 		void bind_render_targets_and_depth_stencil(uint32_t count, const api::resource_view *rtvs, api::resource_view dsv) final;
 
@@ -67,8 +67,8 @@ namespace reshade::d3d12
 		void build_acceleration_structure(api::acceleration_structure_type type, api::acceleration_structure_build_flags flags, uint32_t input_count, const api::acceleration_structure_build_input *inputs, api::resource scratch, uint64_t scratch_offset, api::resource_view source, api::resource_view dest, api::acceleration_structure_build_mode mode) final;
 		void query_acceleration_structures(uint32_t count, const api::resource_view *acceleration_structures, api::query_heap heap, api::query_type type, uint32_t first) override;
 
-		void update_buffer_region(const void *data, api::resource dest, uint64_t dest_offset, uint64_t size) final;
-		void update_texture_region(const api::subresource_data &data, api::resource dest, uint32_t dest_subresource, const api::subresource_box *dest_box) final;
+		void update_buffer_region(const void *data, api::resource dest, uint64_t dest_offset, uint64_t size) override;
+		void update_texture_region(const api::subresource_data &data, api::resource dest, uint32_t dest_subresource, const api::subresource_box *dest_box) override;
 
 		void begin_debug_event(const char *label, const float color[4]) final;
 		void end_debug_event() final;
@@ -77,10 +77,7 @@ namespace reshade::d3d12
 	protected:
 		void on_init();
 
-		device_impl *const _device_impl;
-		bool _has_commands = false;
-		bool _supports_ray_tracing = false;
-		bool _supports_render_passes = false;
+		device_impl *const _device;
 
 		// Currently bound root signature (graphics at index 0, compute at index 1)
 		ID3D12RootSignature *_current_root_signature[2] = {};
@@ -89,5 +86,11 @@ namespace reshade::d3d12
 #if RESHADE_ADDON >= 2
 		ID3D12DescriptorHeap *_previous_descriptor_heaps[2] = {};
 #endif
+
+		bool _has_commands = false;
+
+	private:
+		bool _supports_ray_tracing = false;
+		bool _supports_render_passes = false;
 	};
 }

@@ -9,13 +9,13 @@
 
 reshade::d3d11::swapchain_impl::swapchain_impl(device_impl *device, IDXGISwapChain *swapchain) :
 	api_object_impl(swapchain),
-	_device_impl(device)
+	_device(device)
 {
 }
 
 reshade::api::device *reshade::d3d11::swapchain_impl::get_device()
 {
-	return _device_impl;
+	return _device;
 }
 
 void *reshade::d3d11::swapchain_impl::get_hwnd() const
@@ -45,7 +45,7 @@ bool reshade::d3d11::swapchain_impl::check_color_space_support(api::color_space 
 
 	com_ptr<IDXGISwapChain3> swapchain3;
 	if (FAILED(_orig->QueryInterface(&swapchain3)))
-		return color_space == api::color_space::srgb_nonlinear;
+		return color_space == api::color_space::srgb;
 
 	UINT support;
 	return SUCCEEDED(swapchain3->CheckColorSpaceSupport(convert_color_space(color_space), &support)) && (support & DXGI_SWAP_CHAIN_COLOR_SPACE_SUPPORT_FLAG_PRESENT) != 0;

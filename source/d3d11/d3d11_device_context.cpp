@@ -8,14 +8,13 @@
 #include "d3d11_command_list.hpp"
 #include "d3d11_impl_type_convert.hpp"
 #include "dll_log.hpp"
+#include "com_utils.hpp"
 #include "addon_manager.hpp"
 
 using reshade::d3d11::to_handle;
 
 D3D11DeviceContext::D3D11DeviceContext(D3D11Device *device, ID3D11DeviceContext  *original) :
-	device_context_impl(device, original),
-	_interface_version(0),
-	_device(device)
+	device_context_impl(device, original)
 {
 	assert(_orig != nullptr && _device != nullptr);
 
@@ -64,7 +63,7 @@ bool D3D11DeviceContext::check_and_upgrade_interface(REFIID riid)
 		__uuidof(ID3D11DeviceContext4), // {917600DA-F58C-4C33-98D8-3E15B390FA24}
 	};
 
-	for (unsigned short version = 0; version < ARRAYSIZE(iid_lookup); ++version)
+	for (unsigned short version = 0; version < std::size(iid_lookup); ++version)
 	{
 		if (riid != iid_lookup[version])
 			continue;
@@ -101,7 +100,6 @@ HRESULT STDMETHODCALLTYPE D3D11DeviceContext::QueryInterface(REFIID riid, void *
 	}
 
 	// Interface ID to query the original object from a proxy object
-	constexpr GUID IID_UnwrappedObject = { 0x7f2c9a11, 0x3b4e, 0x4d6a, { 0x81, 0x2f, 0x5e, 0x9c, 0xd3, 0x7a, 0x1b, 0x42 } }; // {7F2C9A11-3B4E-4D6A-812F-5E9CD37A1B42}
 	if (riid == IID_UnwrappedObject)
 	{
 		_orig->AddRef();
@@ -121,7 +119,7 @@ ULONG   STDMETHODCALLTYPE D3D11DeviceContext::AddRef()
 {
 	// The immediate device context is tightly coupled with its device, so simply use the device reference count
 	if (_orig->GetType() == D3D11_DEVICE_CONTEXT_IMMEDIATE)
-		return _device->AddRef() - 1;
+		return static_cast<D3D11Device *>(_device)->AddRef() - 1;
 
 	_orig->AddRef();
 	return InterlockedIncrement(&_ref);
@@ -129,7 +127,7 @@ ULONG   STDMETHODCALLTYPE D3D11DeviceContext::AddRef()
 ULONG   STDMETHODCALLTYPE D3D11DeviceContext::Release()
 {
 	if (_orig->GetType() == D3D11_DEVICE_CONTEXT_IMMEDIATE)
-		return _device->Release() - 1;
+		return static_cast<D3D11Device *>(_device)->Release() - 1;
 
 	const ULONG ref = InterlockedDecrement(&_ref);
 	if (ref != 0)
@@ -156,8 +154,8 @@ void    STDMETHODCALLTYPE D3D11DeviceContext::GetDevice(ID3D11Device **ppDevice)
 	if (ppDevice == nullptr)
 		return;
 
-	_device->AddRef();
-	*ppDevice = _device;
+	static_cast<D3D11Device *>(_device)->AddRef();
+	*ppDevice = static_cast<D3D11Device *>(_device);
 }
 HRESULT STDMETHODCALLTYPE D3D11DeviceContext::GetPrivateData(REFGUID guid, UINT *pDataSize, void *pData)
 {
@@ -225,14 +223,14 @@ void    STDMETHODCALLTYPE D3D11DeviceContext::Draw(UINT VertexCount, UINT StartV
 }
 HRESULT STDMETHODCALLTYPE D3D11DeviceContext::Map(ID3D11Resource *pResource, UINT Subresource, D3D11_MAP MapType, UINT MapFlags, D3D11_MAPPED_SUBRESOURCE *pMappedResource)
 {
-	assert(pResource != nullptr);
-
 	const HRESULT hr = _orig->Map(pResource, Subresource, MapType, MapFlags, pMappedResource);
 #if RESHADE_ADDON >= 2
 	if (SUCCEEDED(hr) && (
 		reshade::has_addon_event<reshade::addon_event::map_buffer_region>() ||
 		reshade::has_addon_event<reshade::addon_event::map_texture_region>()))
 	{
+		assert(pResource != nullptr);
+
 		D3D11_RESOURCE_DIMENSION type;
 		pResource->GetType(&type);
 
@@ -266,12 +264,12 @@ HRESULT STDMETHODCALLTYPE D3D11DeviceContext::Map(ID3D11Resource *pResource, UIN
 }
 void    STDMETHODCALLTYPE D3D11DeviceContext::Unmap(ID3D11Resource *pResource, UINT Subresource)
 {
-	assert(pResource != nullptr);
-
 #if RESHADE_ADDON >= 2
 	if (reshade::has_addon_event<reshade::addon_event::unmap_buffer_region>() ||
 		reshade::has_addon_event<reshade::addon_event::unmap_texture_region>())
 	{
+		assert(pResource != nullptr);
+
 		D3D11_RESOURCE_DIMENSION type;
 		pResource->GetType(&type);
 
@@ -593,9 +591,9 @@ void    STDMETHODCALLTYPE D3D11DeviceContext::RSSetScissorRects(UINT NumRects, c
 }
 void    STDMETHODCALLTYPE D3D11DeviceContext::CopySubresourceRegion(ID3D11Resource *pDstResource, UINT DstSubresource, UINT DstX, UINT DstY, UINT DstZ, ID3D11Resource *pSrcResource, UINT SrcSubresource, const D3D11_BOX *pSrcBox)
 {
+#if RESHADE_ADDON >= 2
 	assert(pDstResource != nullptr && pSrcResource != nullptr);
 
-#if RESHADE_ADDON >= 2
 	if (reshade::has_addon_event<reshade::addon_event::copy_buffer_region>() ||
 		reshade::has_addon_event<reshade::addon_event::copy_texture_region>())
 	{
@@ -640,33 +638,33 @@ void    STDMETHODCALLTYPE D3D11DeviceContext::CopySubresourceRegion(ID3D11Resour
 
 					switch (type)
 					{
-						case D3D11_RESOURCE_DIMENSION_TEXTURE1D:
+					case D3D11_RESOURCE_DIMENSION_TEXTURE1D:
 						{
 							D3D11_TEXTURE1D_DESC desc;
 							static_cast<ID3D11Texture1D *>(pSrcResource)->GetDesc(&desc);
 							dst_box.right += desc.Width;
 							dst_box.bottom += 1;
 							dst_box.back += 1;
-							break;
 						}
-						case D3D11_RESOURCE_DIMENSION_TEXTURE2D:
+						break;
+					case D3D11_RESOURCE_DIMENSION_TEXTURE2D:
 						{
 							D3D11_TEXTURE2D_DESC desc;
 							static_cast<ID3D11Texture2D *>(pSrcResource)->GetDesc(&desc);
 							dst_box.right += desc.Width;
 							dst_box.bottom += desc.Height;
 							dst_box.back += 1;
-							break;
 						}
-						case D3D11_RESOURCE_DIMENSION_TEXTURE3D:
+						break;
+					case D3D11_RESOURCE_DIMENSION_TEXTURE3D:
 						{
 							D3D11_TEXTURE3D_DESC desc;
 							static_cast<ID3D11Texture3D *>(pSrcResource)->GetDesc(&desc);
 							dst_box.right += desc.Width;
 							dst_box.bottom += desc.Height;
 							dst_box.back += desc.Depth;
-							break;
 						}
+						break;
 					}
 				}
 			}
@@ -689,9 +687,9 @@ void    STDMETHODCALLTYPE D3D11DeviceContext::CopySubresourceRegion(ID3D11Resour
 }
 void    STDMETHODCALLTYPE D3D11DeviceContext::CopyResource(ID3D11Resource *pDstResource, ID3D11Resource *pSrcResource)
 {
+#if RESHADE_ADDON >= 2
 	assert(pDstResource != nullptr && pSrcResource != nullptr);
 
-#if RESHADE_ADDON >= 2
 	if (reshade::invoke_addon_event<reshade::addon_event::copy_resource>(this, to_handle(pSrcResource), to_handle(pDstResource)))
 		return;
 #endif
@@ -699,9 +697,9 @@ void    STDMETHODCALLTYPE D3D11DeviceContext::CopyResource(ID3D11Resource *pDstR
 }
 void    STDMETHODCALLTYPE D3D11DeviceContext::UpdateSubresource(ID3D11Resource *pDstResource, UINT DstSubresource, const D3D11_BOX *pDstBox, const void *pSrcData, UINT SrcRowPitch, UINT SrcDepthPitch)
 {
+#if RESHADE_ADDON >= 2
 	assert(pDstResource != nullptr);
 
-#if RESHADE_ADDON >= 2
 	if (_orig->GetType() == D3D11_DEVICE_CONTEXT_IMMEDIATE)
 	{
 		if (reshade::has_addon_event<reshade::addon_event::update_buffer_region>() ||
@@ -719,7 +717,7 @@ void    STDMETHODCALLTYPE D3D11DeviceContext::UpdateSubresource(ID3D11Resource *
 						pSrcData,
 						to_handle(pDstResource),
 						pDstBox != nullptr ? pDstBox->left : 0,
-						pDstBox != nullptr ? pDstBox->right - pDstBox->left : SrcRowPitch))
+						pDstBox != nullptr ? pDstBox->right - pDstBox->left : UINT64_MAX))
 					return;
 			}
 			else
@@ -751,7 +749,7 @@ void    STDMETHODCALLTYPE D3D11DeviceContext::UpdateSubresource(ID3D11Resource *
 						pSrcData,
 						to_handle(pDstResource),
 						pDstBox != nullptr ? pDstBox->left : 0,
-						pDstBox != nullptr ? pDstBox->right - pDstBox->left : SrcRowPitch))
+						pDstBox != nullptr ? pDstBox->right - pDstBox->left : UINT64_MAX))
 					return;
 			}
 			else
@@ -772,9 +770,9 @@ void    STDMETHODCALLTYPE D3D11DeviceContext::UpdateSubresource(ID3D11Resource *
 }
 void    STDMETHODCALLTYPE D3D11DeviceContext::CopyStructureCount(ID3D11Buffer *pDstBuffer, UINT DstAlignedByteOffset, ID3D11UnorderedAccessView *pSrcView)
 {
+#if RESHADE_ADDON >= 2
 	assert(pSrcView != nullptr);
 
-#if RESHADE_ADDON >= 2
 	if (reshade::has_addon_event<reshade::addon_event::copy_buffer_region>())
 	{
 		D3D11_UNORDERED_ACCESS_VIEW_DESC desc;
@@ -1143,7 +1141,7 @@ HRESULT STDMETHODCALLTYPE D3D11DeviceContext::FinishCommandList(BOOL RestoreDefe
 	{
 		assert(ppCommandList != nullptr);
 
-		const auto command_list_proxy = new D3D11CommandList(_device, *ppCommandList);
+		const auto command_list_proxy = new D3D11CommandList(static_cast<D3D11Device *>(_device), *ppCommandList);
 		*ppCommandList = command_list_proxy;
 
 #if RESHADE_ADDON
@@ -1167,9 +1165,11 @@ D3D11_DEVICE_CONTEXT_TYPE STDMETHODCALLTYPE D3D11DeviceContext::GetType()
 
 void    STDMETHODCALLTYPE D3D11DeviceContext::CopySubresourceRegion1(ID3D11Resource *pDstResource, UINT DstSubresource, UINT DstX, UINT DstY, UINT DstZ, ID3D11Resource *pSrcResource, UINT SrcSubresource, const D3D11_BOX *pSrcBox, UINT CopyFlags)
 {
-	assert(pDstResource != nullptr && pSrcResource != nullptr);
+	assert(_interface_version >= 1);
 
 #if RESHADE_ADDON >= 2
+	assert(pDstResource != nullptr && pSrcResource != nullptr);
+
 	if (reshade::has_addon_event<reshade::addon_event::copy_buffer_region>() ||
 		reshade::has_addon_event<reshade::addon_event::copy_texture_region>())
 	{
@@ -1186,7 +1186,7 @@ void    STDMETHODCALLTYPE D3D11DeviceContext::CopySubresourceRegion1(ID3D11Resou
 					pSrcBox != nullptr ? pSrcBox->left : 0,
 					to_handle(pDstResource),
 					DstX,
-					pSrcBox != nullptr ? pSrcBox->right - pSrcBox->left : ~0ull))
+					pSrcBox != nullptr ? pSrcBox->right - pSrcBox->left : UINT64_MAX))
 				return;
 		}
 		else
@@ -1214,33 +1214,33 @@ void    STDMETHODCALLTYPE D3D11DeviceContext::CopySubresourceRegion1(ID3D11Resou
 
 					switch (type)
 					{
-						case D3D11_RESOURCE_DIMENSION_TEXTURE1D:
+					case D3D11_RESOURCE_DIMENSION_TEXTURE1D:
 						{
 							D3D11_TEXTURE1D_DESC desc;
 							static_cast<ID3D11Texture1D *>(pSrcResource)->GetDesc(&desc);
 							dst_box.right += desc.Width;
 							dst_box.bottom += 1;
 							dst_box.back += 1;
-							break;
 						}
-						case D3D11_RESOURCE_DIMENSION_TEXTURE2D:
+						break;
+					case D3D11_RESOURCE_DIMENSION_TEXTURE2D:
 						{
 							D3D11_TEXTURE2D_DESC desc;
 							static_cast<ID3D11Texture2D *>(pSrcResource)->GetDesc(&desc);
 							dst_box.right += desc.Width;
 							dst_box.bottom += desc.Height;
 							dst_box.back += 1;
-							break;
 						}
-						case D3D11_RESOURCE_DIMENSION_TEXTURE3D:
+						break;
+					case D3D11_RESOURCE_DIMENSION_TEXTURE3D:
 						{
 							D3D11_TEXTURE3D_DESC desc;
 							static_cast<ID3D11Texture3D *>(pSrcResource)->GetDesc(&desc);
 							dst_box.right += desc.Width;
 							dst_box.bottom += desc.Height;
 							dst_box.back += desc.Depth;
-							break;
 						}
+						break;
 					}
 				}
 			}
@@ -1259,14 +1259,15 @@ void    STDMETHODCALLTYPE D3D11DeviceContext::CopySubresourceRegion1(ID3D11Resou
 	}
 #endif
 
-	assert(_interface_version >= 1);
 	static_cast<ID3D11DeviceContext1 *>(_orig)->CopySubresourceRegion1(pDstResource, DstSubresource, DstX, DstY, DstZ, pSrcResource, SrcSubresource, pSrcBox, CopyFlags);
 }
 void    STDMETHODCALLTYPE D3D11DeviceContext::UpdateSubresource1(ID3D11Resource *pDstResource, UINT DstSubresource, const D3D11_BOX *pDstBox, const void *pSrcData, UINT SrcRowPitch, UINT SrcDepthPitch, UINT CopyFlags)
 {
-	assert(pDstResource != nullptr);
+	assert(_interface_version >= 1);
 
 #if RESHADE_ADDON >= 2
+	assert(pDstResource != nullptr);
+
 	if (_orig->GetType() == D3D11_DEVICE_CONTEXT_IMMEDIATE)
 	{
 		if (reshade::has_addon_event<reshade::addon_event::update_buffer_region>() ||
@@ -1284,7 +1285,7 @@ void    STDMETHODCALLTYPE D3D11DeviceContext::UpdateSubresource1(ID3D11Resource 
 						pSrcData,
 						to_handle(pDstResource),
 						pDstBox != nullptr ? pDstBox->left : 0,
-						pDstBox != nullptr ? pDstBox->right - pDstBox->left : SrcRowPitch))
+						pDstBox != nullptr ? pDstBox->right - pDstBox->left : UINT64_MAX))
 					return;
 			}
 			else
@@ -1316,7 +1317,7 @@ void    STDMETHODCALLTYPE D3D11DeviceContext::UpdateSubresource1(ID3D11Resource 
 						pSrcData,
 						to_handle(pDstResource),
 						pDstBox != nullptr ? pDstBox->left : 0,
-						pDstBox != nullptr ? pDstBox->right - pDstBox->left : SrcRowPitch))
+						pDstBox != nullptr ? pDstBox->right - pDstBox->left : UINT64_MAX))
 					return;
 			}
 			else
@@ -1333,23 +1334,26 @@ void    STDMETHODCALLTYPE D3D11DeviceContext::UpdateSubresource1(ID3D11Resource 
 	}
 #endif
 
-	assert(_interface_version >= 1);
 	static_cast<ID3D11DeviceContext1 *>(_orig)->UpdateSubresource1(pDstResource, DstSubresource, pDstBox, pSrcData, SrcRowPitch, SrcDepthPitch, CopyFlags);
 }
 void    STDMETHODCALLTYPE D3D11DeviceContext::DiscardResource(ID3D11Resource *pResource)
 {
 	assert(_interface_version >= 1);
+
 	static_cast<ID3D11DeviceContext1 *>(_orig)->DiscardResource(pResource);
 }
 void    STDMETHODCALLTYPE D3D11DeviceContext::DiscardView(ID3D11View *pResourceView)
 {
 	assert(_interface_version >= 1);
+
 	static_cast<ID3D11DeviceContext1 *>(_orig)->DiscardView(pResourceView);
 }
 void    STDMETHODCALLTYPE D3D11DeviceContext::VSSetConstantBuffers1(UINT StartSlot, UINT NumBuffers, ID3D11Buffer *const *ppConstantBuffers, const UINT *pFirstConstant, const UINT *pNumConstants)
 {
 	assert(_interface_version >= 1);
+
 	static_cast<ID3D11DeviceContext1 *>(_orig)->VSSetConstantBuffers1(StartSlot, NumBuffers, ppConstantBuffers, pFirstConstant, pNumConstants);
+
 #if RESHADE_ADDON >= 2
 	invoke_bind_constant_buffers_event(reshade::api::shader_stage::vertex, StartSlot, NumBuffers, ppConstantBuffers, pFirstConstant, pNumConstants);
 #endif
@@ -1357,7 +1361,9 @@ void    STDMETHODCALLTYPE D3D11DeviceContext::VSSetConstantBuffers1(UINT StartSl
 void    STDMETHODCALLTYPE D3D11DeviceContext::HSSetConstantBuffers1(UINT StartSlot, UINT NumBuffers, ID3D11Buffer *const *ppConstantBuffers, const UINT *pFirstConstant, const UINT *pNumConstants)
 {
 	assert(_interface_version >= 1);
+
 	static_cast<ID3D11DeviceContext1 *>(_orig)->HSSetConstantBuffers1(StartSlot, NumBuffers, ppConstantBuffers, pFirstConstant, pNumConstants);
+
 #if RESHADE_ADDON >= 2
 	invoke_bind_constant_buffers_event(reshade::api::shader_stage::hull, StartSlot, NumBuffers, ppConstantBuffers, pFirstConstant, pNumConstants);
 #endif
@@ -1365,7 +1371,9 @@ void    STDMETHODCALLTYPE D3D11DeviceContext::HSSetConstantBuffers1(UINT StartSl
 void    STDMETHODCALLTYPE D3D11DeviceContext::DSSetConstantBuffers1(UINT StartSlot, UINT NumBuffers, ID3D11Buffer *const *ppConstantBuffers, const UINT *pFirstConstant, const UINT *pNumConstants)
 {
 	assert(_interface_version >= 1);
+
 	static_cast<ID3D11DeviceContext1 *>(_orig)->DSSetConstantBuffers1(StartSlot, NumBuffers, ppConstantBuffers, pFirstConstant, pNumConstants);
+
 #if RESHADE_ADDON >= 2
 	invoke_bind_constant_buffers_event(reshade::api::shader_stage::domain, StartSlot, NumBuffers, ppConstantBuffers, pFirstConstant, pNumConstants);
 #endif
@@ -1373,7 +1381,9 @@ void    STDMETHODCALLTYPE D3D11DeviceContext::DSSetConstantBuffers1(UINT StartSl
 void    STDMETHODCALLTYPE D3D11DeviceContext::GSSetConstantBuffers1(UINT StartSlot, UINT NumBuffers, ID3D11Buffer *const *ppConstantBuffers, const UINT *pFirstConstant, const UINT *pNumConstants)
 {
 	assert(_interface_version >= 1);
+
 	static_cast<ID3D11DeviceContext1 *>(_orig)->GSSetConstantBuffers1(StartSlot, NumBuffers, ppConstantBuffers, pFirstConstant, pNumConstants);
+
 #if RESHADE_ADDON >= 2
 	invoke_bind_constant_buffers_event(reshade::api::shader_stage::geometry, StartSlot, NumBuffers, ppConstantBuffers, pFirstConstant, pNumConstants);
 #endif
@@ -1381,7 +1391,9 @@ void    STDMETHODCALLTYPE D3D11DeviceContext::GSSetConstantBuffers1(UINT StartSl
 void    STDMETHODCALLTYPE D3D11DeviceContext::PSSetConstantBuffers1(UINT StartSlot, UINT NumBuffers, ID3D11Buffer *const *ppConstantBuffers, const UINT *pFirstConstant, const UINT *pNumConstants)
 {
 	assert(_interface_version >= 1);
+
 	static_cast<ID3D11DeviceContext1 *>(_orig)->PSSetConstantBuffers1(StartSlot, NumBuffers, ppConstantBuffers, pFirstConstant, pNumConstants);
+
 #if RESHADE_ADDON >= 2
 	invoke_bind_constant_buffers_event(reshade::api::shader_stage::pixel, StartSlot, NumBuffers, ppConstantBuffers, pFirstConstant, pNumConstants);
 #endif
@@ -1389,7 +1401,9 @@ void    STDMETHODCALLTYPE D3D11DeviceContext::PSSetConstantBuffers1(UINT StartSl
 void    STDMETHODCALLTYPE D3D11DeviceContext::CSSetConstantBuffers1(UINT StartSlot, UINT NumBuffers, ID3D11Buffer *const *ppConstantBuffers, const UINT *pFirstConstant, const UINT *pNumConstants)
 {
 	assert(_interface_version >= 1);
+
 	static_cast<ID3D11DeviceContext1 *>(_orig)->CSSetConstantBuffers1(StartSlot, NumBuffers, ppConstantBuffers, pFirstConstant, pNumConstants);
+
 #if RESHADE_ADDON >= 2
 	invoke_bind_constant_buffers_event(reshade::api::shader_stage::compute, StartSlot, NumBuffers, ppConstantBuffers, pFirstConstant, pNumConstants);
 #endif
@@ -1397,40 +1411,49 @@ void    STDMETHODCALLTYPE D3D11DeviceContext::CSSetConstantBuffers1(UINT StartSl
 void    STDMETHODCALLTYPE D3D11DeviceContext::VSGetConstantBuffers1(UINT StartSlot, UINT NumBuffers, ID3D11Buffer **ppConstantBuffers, UINT *pFirstConstant, UINT *pNumConstants)
 {
 	assert(_interface_version >= 1);
+
 	static_cast<ID3D11DeviceContext1 *>(_orig)->VSGetConstantBuffers1(StartSlot, NumBuffers, ppConstantBuffers, pFirstConstant, pNumConstants);
 }
 void    STDMETHODCALLTYPE D3D11DeviceContext::HSGetConstantBuffers1(UINT StartSlot, UINT NumBuffers, ID3D11Buffer **ppConstantBuffers, UINT *pFirstConstant, UINT *pNumConstants)
 {
 	assert(_interface_version >= 1);
+
 	static_cast<ID3D11DeviceContext1 *>(_orig)->HSGetConstantBuffers1(StartSlot, NumBuffers, ppConstantBuffers, pFirstConstant, pNumConstants);
 }
 void    STDMETHODCALLTYPE D3D11DeviceContext::DSGetConstantBuffers1(UINT StartSlot, UINT NumBuffers, ID3D11Buffer **ppConstantBuffers, UINT *pFirstConstant, UINT *pNumConstants)
 {
 	assert(_interface_version >= 1);
+
 	static_cast<ID3D11DeviceContext1 *>(_orig)->DSGetConstantBuffers1(StartSlot, NumBuffers, ppConstantBuffers, pFirstConstant, pNumConstants);
 }
 void    STDMETHODCALLTYPE D3D11DeviceContext::GSGetConstantBuffers1(UINT StartSlot, UINT NumBuffers, ID3D11Buffer **ppConstantBuffers, UINT *pFirstConstant, UINT *pNumConstants)
 {
 	assert(_interface_version >= 1);
+
 	static_cast<ID3D11DeviceContext1 *>(_orig)->GSGetConstantBuffers1(StartSlot, NumBuffers, ppConstantBuffers, pFirstConstant, pNumConstants);
 }
 void    STDMETHODCALLTYPE D3D11DeviceContext::PSGetConstantBuffers1(UINT StartSlot, UINT NumBuffers, ID3D11Buffer **ppConstantBuffers, UINT *pFirstConstant, UINT *pNumConstants)
 {
 	assert(_interface_version >= 1);
+
 	static_cast<ID3D11DeviceContext1 *>(_orig)->PSGetConstantBuffers1(StartSlot, NumBuffers, ppConstantBuffers, pFirstConstant, pNumConstants);
 }
 void    STDMETHODCALLTYPE D3D11DeviceContext::CSGetConstantBuffers1(UINT StartSlot, UINT NumBuffers, ID3D11Buffer **ppConstantBuffers, UINT *pFirstConstant, UINT *pNumConstants)
 {
 	assert(_interface_version >= 1);
+
 	static_cast<ID3D11DeviceContext1 *>(_orig)->CSGetConstantBuffers1(StartSlot, NumBuffers, ppConstantBuffers, pFirstConstant, pNumConstants);
 }
 void    STDMETHODCALLTYPE D3D11DeviceContext::SwapDeviceContextState(ID3DDeviceContextState *pState, ID3DDeviceContextState **ppPreviousState)
 {
 	assert(_interface_version >= 1);
+
 	static_cast<ID3D11DeviceContext1 *>(_orig)->SwapDeviceContextState(pState, ppPreviousState);
 }
 void    STDMETHODCALLTYPE D3D11DeviceContext::ClearView(ID3D11View *pView, const FLOAT Color[4], const D3D11_RECT *pRect, UINT NumRects)
 {
+	assert(_interface_version >= 1);
+
 #if RESHADE_ADDON
 	if (com_ptr<ID3D11RenderTargetView> rtv;
 		SUCCEEDED(pView->QueryInterface(&rtv)))
@@ -1455,95 +1478,110 @@ void    STDMETHODCALLTYPE D3D11DeviceContext::ClearView(ID3D11View *pView, const
 	}
 #endif
 
-	assert(_interface_version >= 1);
 	static_cast<ID3D11DeviceContext1 *>(_orig)->ClearView(pView, Color, pRect, NumRects);
 }
 void    STDMETHODCALLTYPE D3D11DeviceContext::DiscardView1(ID3D11View *pResourceView, const D3D11_RECT *pRects, UINT NumRects)
 {
 	assert(_interface_version >= 1);
+
 	static_cast<ID3D11DeviceContext1 *>(_orig)->DiscardView1(pResourceView, pRects, NumRects);
 }
 
 HRESULT STDMETHODCALLTYPE D3D11DeviceContext::UpdateTileMappings(ID3D11Resource *pTiledResource, UINT NumTiledResourceRegions, const D3D11_TILED_RESOURCE_COORDINATE *pTiledResourceRegionStartCoordinates, const D3D11_TILE_REGION_SIZE *pTiledResourceRegionSizes, ID3D11Buffer *pTilePool, UINT NumRanges, const UINT *pRangeFlags, const UINT *pTilePoolStartOffsets, const UINT *pRangeTileCounts, UINT Flags)
 {
 	assert(_interface_version >= 2);
+
 	return static_cast<ID3D11DeviceContext2 *>(_orig)->UpdateTileMappings(pTiledResource, NumTiledResourceRegions, pTiledResourceRegionStartCoordinates, pTiledResourceRegionSizes, pTilePool, NumRanges, pRangeFlags, pTilePoolStartOffsets, pRangeTileCounts, Flags);
 }
 HRESULT STDMETHODCALLTYPE D3D11DeviceContext::CopyTileMappings(ID3D11Resource *pDestTiledResource, const D3D11_TILED_RESOURCE_COORDINATE *pDestRegionStartCoordinate, ID3D11Resource *pSourceTiledResource, const D3D11_TILED_RESOURCE_COORDINATE *pSourceRegionStartCoordinate, const D3D11_TILE_REGION_SIZE *pTileRegionSize, UINT Flags)
 {
 	assert(_interface_version >= 2);
+
 	return static_cast<ID3D11DeviceContext2 *>(_orig)->CopyTileMappings(pDestTiledResource, pDestRegionStartCoordinate, pSourceTiledResource, pSourceRegionStartCoordinate, pTileRegionSize, Flags);
 }
 void    STDMETHODCALLTYPE D3D11DeviceContext::CopyTiles(ID3D11Resource *pTiledResource, const D3D11_TILED_RESOURCE_COORDINATE *pTileRegionStartCoordinate, const D3D11_TILE_REGION_SIZE *pTileRegionSize, ID3D11Buffer *pBuffer, UINT64 BufferStartOffsetInBytes, UINT Flags)
 {
 	assert(_interface_version >= 2);
+
 	static_cast<ID3D11DeviceContext2 *>(_orig)->CopyTiles(pTiledResource, pTileRegionStartCoordinate, pTileRegionSize, pBuffer, BufferStartOffsetInBytes, Flags);
 }
 void    STDMETHODCALLTYPE D3D11DeviceContext::UpdateTiles(ID3D11Resource *pDestTiledResource, const D3D11_TILED_RESOURCE_COORDINATE *pDestTileRegionStartCoordinate, const D3D11_TILE_REGION_SIZE *pDestTileRegionSize, const void *pSourceTileData, UINT Flags)
 {
 	assert(_interface_version >= 2);
+
 	static_cast<ID3D11DeviceContext2 *>(_orig)->UpdateTiles(pDestTiledResource, pDestTileRegionStartCoordinate, pDestTileRegionSize, pSourceTileData, Flags);
 }
 HRESULT STDMETHODCALLTYPE D3D11DeviceContext::ResizeTilePool(ID3D11Buffer *pTilePool, UINT64 NewSizeInBytes)
 {
 	assert(_interface_version >= 2);
+
 	return static_cast<ID3D11DeviceContext2 *>(_orig)->ResizeTilePool(pTilePool, NewSizeInBytes);
 }
 void    STDMETHODCALLTYPE D3D11DeviceContext::TiledResourceBarrier(ID3D11DeviceChild *pTiledResourceOrViewAccessBeforeBarrier, ID3D11DeviceChild *pTiledResourceOrViewAccessAfterBarrier)
 {
 	assert(_interface_version >= 2);
+
 	static_cast<ID3D11DeviceContext2 *>(_orig)->TiledResourceBarrier(pTiledResourceOrViewAccessBeforeBarrier, pTiledResourceOrViewAccessAfterBarrier);
 }
 BOOL    STDMETHODCALLTYPE D3D11DeviceContext::IsAnnotationEnabled()
 {
 	assert(_interface_version >= 2);
+
 	return static_cast<ID3D11DeviceContext2 *>(_orig)->IsAnnotationEnabled();
 }
 void    STDMETHODCALLTYPE D3D11DeviceContext::SetMarkerInt(LPCWSTR pLabel, INT Data)
 {
 	assert(_interface_version >= 2);
+
 	static_cast<ID3D11DeviceContext2 *>(_orig)->SetMarkerInt(pLabel, Data);
 }
 void    STDMETHODCALLTYPE D3D11DeviceContext::BeginEventInt(LPCWSTR pLabel, INT Data)
 {
 	assert(_interface_version >= 2);
+
 	static_cast<ID3D11DeviceContext2 *>(_orig)->BeginEventInt(pLabel, Data);
 }
 void    STDMETHODCALLTYPE D3D11DeviceContext::EndEvent()
 {
 	assert(_interface_version >= 2);
+
 	static_cast<ID3D11DeviceContext2 *>(_orig)->EndEvent();
 }
 
 void    STDMETHODCALLTYPE D3D11DeviceContext::Flush1(D3D11_CONTEXT_TYPE ContextType, HANDLE hEvent)
 {
+	assert(_interface_version >= 3);
+
 #if RESHADE_ADDON
 	if (_orig->GetType() == D3D11_DEVICE_CONTEXT_IMMEDIATE)
 		reshade::invoke_addon_event<reshade::addon_event::execute_command_list>(this, this);
 #endif
 
-	assert(_interface_version >= 3);
 	static_cast<ID3D11DeviceContext3 *>(_orig)->Flush1(ContextType, hEvent);
 }
 void    STDMETHODCALLTYPE D3D11DeviceContext::SetHardwareProtectionState(BOOL HwProtectionEnable)
 {
 	assert(_interface_version >= 3);
+
 	static_cast<ID3D11DeviceContext3 *>(_orig)->SetHardwareProtectionState(HwProtectionEnable);
 }
 void    STDMETHODCALLTYPE D3D11DeviceContext::GetHardwareProtectionState(BOOL *pHwProtectionEnable)
 {
 	assert(_interface_version >= 3);
+
 	static_cast<ID3D11DeviceContext3 *>(_orig)->GetHardwareProtectionState(pHwProtectionEnable);
 }
 
 HRESULT STDMETHODCALLTYPE D3D11DeviceContext::Signal(ID3D11Fence *pFence, UINT64 Value)
 {
 	assert(_interface_version >= 4);
+
 	return static_cast<ID3D11DeviceContext4 *>(_orig)->Signal(pFence, Value);
 }
 HRESULT STDMETHODCALLTYPE D3D11DeviceContext::Wait(ID3D11Fence *pFence, UINT64 Value)
 {
 	assert(_interface_version >= 4);
+
 	return static_cast<ID3D11DeviceContext4 *>(_orig)->Wait(pFence, Value);
 }
 
@@ -1593,7 +1631,7 @@ void D3D11DeviceContext::invoke_bind_samplers_event(reshade::api::shader_stage s
 	reshade::invoke_addon_event<reshade::addon_event::push_descriptors>(
 		this,
 		stage,
-		_device->_global_pipeline_layout, 0,
+		static_cast<D3D11Device *>(_device)->_global_pipeline_layout, 0,
 		reshade::api::descriptor_table_update { {}, first, 0, count, reshade::api::descriptor_type::sampler, descriptors });
 }
 void D3D11DeviceContext::invoke_bind_shader_resource_views_event(reshade::api::shader_stage stage, UINT first, UINT count, ID3D11ShaderResourceView *const *objects)
@@ -1616,7 +1654,7 @@ void D3D11DeviceContext::invoke_bind_shader_resource_views_event(reshade::api::s
 	reshade::invoke_addon_event<reshade::addon_event::push_descriptors>(
 		this,
 		stage,
-		_device->_global_pipeline_layout, 1,
+		static_cast<D3D11Device *>(_device)->_global_pipeline_layout, 1,
 		reshade::api::descriptor_table_update { {}, first, 0, count, reshade::api::descriptor_type::shader_resource_view, descriptors });
 }
 void D3D11DeviceContext::invoke_bind_unordered_access_views_event(reshade::api::shader_stage stage, UINT first, UINT count, ID3D11UnorderedAccessView *const *objects)
@@ -1639,7 +1677,7 @@ void D3D11DeviceContext::invoke_bind_unordered_access_views_event(reshade::api::
 	reshade::invoke_addon_event<reshade::addon_event::push_descriptors>(
 		this,
 		stage,
-		_device->_global_pipeline_layout, 3,
+		static_cast<D3D11Device *>(_device)->_global_pipeline_layout, 3,
 		reshade::api::descriptor_table_update { {}, first, 0, count, reshade::api::descriptor_type::unordered_access_view, descriptors });
 }
 void D3D11DeviceContext::invoke_bind_constant_buffers_event(reshade::api::shader_stage stage, UINT first, UINT count, ID3D11Buffer *const *objects, const UINT *first_constant, const UINT *constant_count)
@@ -1657,7 +1695,7 @@ void D3D11DeviceContext::invoke_bind_constant_buffers_event(reshade::api::shader
 	reshade::invoke_addon_event<reshade::addon_event::push_descriptors>(
 		this,
 		stage,
-		_device->_global_pipeline_layout, 2,
+		static_cast<D3D11Device *>(_device)->_global_pipeline_layout, 2,
 		reshade::api::descriptor_table_update { {}, first, 0, count, reshade::api::descriptor_type::constant_buffer, descriptors });
 }
 #endif
